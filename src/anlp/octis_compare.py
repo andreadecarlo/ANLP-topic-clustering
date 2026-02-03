@@ -26,15 +26,17 @@ def build_octis_dataset(tokenized_corpus: list[list[str]]) -> tuple["Dataset", l
         for w in doc:
             vocab_set[w] = None
     vocabulary = list(vocab_set.keys())
-    word2id = {w: i for i, w in enumerate(vocabulary)}
 
-    # Corpus as list of list of word indices (OCTIS format)
-    corpus_idx = [[word2id[w] for w in doc if w in word2id] for doc in tokenized_corpus]
     # Filter very short docs (OCTIS needs enough tokens); keep aligned tokenized for coherence
-    tokenized_corpus = [tokenized_corpus[i] for i, c in enumerate(corpus_idx) if len(c) >= 5]
-    corpus_idx = [c for c in corpus_idx if len(c) >= 5]
+    tokenized_filtered = [doc for doc in tokenized_corpus if len(doc) >= 5]
 
-    return Dataset(corpus=corpus_idx, vocabulary=vocabulary), tokenized_corpus
+    # OCTIS LDA expects metadata with "last-training-doc" for get_partitioned_corpus();
+    # use full corpus as training (no separate test split) so it returns (train, test) unpackable.
+    # LDA expects corpus as list of lists of word strings (not indices), so pass tokenized_filtered directly.
+    n = len(tokenized_filtered)
+    metadata = {"last-training-doc": n}
+
+    return Dataset(corpus=tokenized_filtered, vocabulary=vocabulary, metadata=metadata), tokenized_filtered
 
 
 def run_octis_model(
@@ -50,22 +52,24 @@ def run_octis_model(
         model = LDA(
             num_topics=num_topics,
             alpha="symmetric",
-            beta=0.01,
+            eta=0.01,
             iterations=50,
             random_state=random_state,
         )
+        output = model.train_model(dataset, hyperparams={}, top_words=15)
     elif algorithm.upper() == "NMF":
         from octis.models.NMF import NMF
 
         model = NMF(num_topics=num_topics, random_state=random_state)
+        output = model.train_model(dataset, hyperparameters={}, top_words=15)
     elif algorithm.upper() == "LSI":
         from octis.models.LSI import LSI
 
         model = LSI(num_topics=num_topics, random_state=random_state)
+        output = model.train_model(dataset, hyperparameters={}, top_words=15)
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}. Choose from {OCTIS_ALGORITHMS}")
 
-    output = model.train_model(dataset, hyperparameters={}, top_words=15)
     return output
 
 

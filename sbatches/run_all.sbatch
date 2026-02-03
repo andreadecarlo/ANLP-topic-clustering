@@ -19,12 +19,12 @@ echo "=== ANLP: full pipeline (data + OCTIS + BERTopic) ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 
 echo "--- 1. Data subset ---"
-uv run anlp data --year-min 2010 --year-max 2020 --max-docs 50000
+uv run anlp data --year-min 2010 --year-max 2020 --max-docs 1000
 
 echo "--- 2. OCTIS comparison ---"
-uv run anlp octis --year-min 2010 --year-max 2020 --max-docs 50000 --num-topics 20
+uv run anlp octis --year-min 2010 --year-max 2020 --max-docs 1000 --num-topics 5
 
 echo "--- 3. BERTopic ---"
-uv run anlp bertopic --year-min 2010 --year-max 2020 --max-docs 50000 --save models/bertopic_lyrics
+uv run anlp bertopic --year-min 2010 --year-max 2020 --max-docs 1000 --save models/bertopic_lyrics
 
 echo "=== Pipeline done ==="

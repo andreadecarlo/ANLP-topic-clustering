@@ -31,11 +31,12 @@ def build_bertopic_model(
     Uses n-gram range (1, 2) and top words for interpretable labels.
     """
     # Vectorizer for c-TF-IDF topic representation (phrases + single words)
+    # Use min_df=1 to avoid errors with small topics; max_df=1.0 allows all words
     vectorizer = CountVectorizer(
         ngram_range=n_gram_range,
         stop_words="english",
-        min_df=2,
-        max_df=0.95,
+        min_df=1,  # Changed from 2 to avoid "max_df < min_df" error with small topics
+        max_df=1.0,  # Changed from 0.95 to allow all words (no upper limit)
     )
 
     topic_model = BERTopic(
@@ -46,12 +47,27 @@ def build_bertopic_model(
         verbose=True,
     )
 
-    topic_model.fit(documents)
+    try:
+        topic_model.fit(documents)
+    except ValueError as e:
+        if "Found array with 0 sample" in str(e):
+            # Auto-reduction failed because all documents are outliers
+            # Recreate model with auto-reduction disabled
+            topic_model = BERTopic(
+                embedding_model=embedding_model,
+                min_topic_size=min_topic_size,
+                nr_topics=None,  # Disable auto-reduction
+                vectorizer_model=vectorizer,
+                verbose=True,
+            )
+            topic_model.fit(documents)
+        else:
+            raise
     # Refine topic representation for human-readable labels (phrases)
     topic_model.update_topics(
         documents,
         n_gram_range=n_gram_range,
-        n_words=n_words,
+        top_n_words=n_words,
     )
     return topic_model
 
@@ -99,7 +115,14 @@ def fit_bertopic_on_lyrics(
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
     topic_model.save(str(save_path))
-    df_clean.to_parquet(save_path.parent / (save_path.name + "_docs.parquet"), index=False)
+    # Save docs DataFrame (parquet preferred, fallback to CSV)
+    docs_path = save_path.parent / (save_path.name + "_docs.parquet")
+    try:
+        df_clean.to_parquet(docs_path, index=False)
+    except ImportError:
+        # Fallback to CSV if parquet engine not available
+        docs_path = save_path.parent / (save_path.name + "_docs.csv")
+        df_clean.to_csv(docs_path, index=False)
 
     return topic_model, df_clean, topics, probs
 
