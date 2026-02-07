@@ -10,6 +10,7 @@ import pandas as pd
 from anlp.config import (
     CSV_FILENAME,
     KAGGLE_DATASET,
+    MAX_DOCS_SUBSET,
     RAW_DATA_DIR,
 )
 
@@ -54,7 +55,7 @@ _SUBSET_USECOLS = ["year", "lyrics", "title", "tag", "artist", "id"]
 def load_lyrics_subset(
     year_min: int = 2010,
     year_max: int = 2020,
-    max_docs: int = 50_000,
+    max_docs: int = MAX_DOCS_SUBSET,
     csv_path: Path | None = None,
     chunksize: int = 100_000,
 ) -> pd.DataFrame:

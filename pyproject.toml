@@ -12,6 +12,10 @@ dependencies = [
     "pyarrow>=14.0",
     "kaggle>=1.6",
     "tqdm>=4.65",
+    "transformers>=4.36",
+    "torch>=2.0",
+    "bitsandbytes>=0.41",
+    "accelerate>=0.20",
 ]
 
 [project.optional-dependencies]

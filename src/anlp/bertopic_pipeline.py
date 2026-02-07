@@ -3,19 +3,94 @@
 from pathlib import Path
 
 import pandas as pd
+import torch
+import transformers
 from bertopic import BERTopic
+from bertopic.representation import TextGeneration
 from sklearn.feature_extraction.text import CountVectorizer
 
 from anlp.config import (
     BERTOPIC_EMBEDDING_MODEL,
     BERTOPIC_MIN_TOPIC_SIZE,
     BERTOPIC_NUM_TOPICS,
+    BERTOPIC_REPRESENTATION_LLAMA_DEVICE,
+    BERTOPIC_REPRESENTATION_LLAMA_MODEL,
     BERTOPIC_REPRESENTATION_N_WORDS,
     BERTOPIC_REPRESENTATION_NGRAM_RANGE,
+    MAX_DOCS_SUBSET,
     MODELS_DIR,
     ensure_dirs,
 )
 from anlp.data.load_lyrics import load_lyrics_subset, get_lyrics_corpus
+
+# Llama-style prompt for topic labeling: [KEYWORDS] and [DOCUMENTS] filled by BERTopic (tutorial format)
+LLAMA_REPRESENTATION_SYSTEM = """<s>[INST] <<SYS>>
+You are a helpful assistant for labeling topics. Return only the topic label, nothing else.
+<</SYS>>
+"""
+
+LLAMA_REPRESENTATION_MAIN = """
+[INST]
+I have a topic that contains the following documents:
+[DOCUMENTS]
+
+The topic is described by the following keywords: '[KEYWORDS]'.
+
+Based on the information above, create a short label for this topic. Return only the label.
+[/INST]
+"""
+
+
+def _make_llama_representation_model(
+    model_id: str | None = BERTOPIC_REPRESENTATION_LLAMA_MODEL,
+    device: str = BERTOPIC_REPRESENTATION_LLAMA_DEVICE,
+    prompt: str | None = None,
+    nr_docs: int = 4,
+):
+    """Build BERTopic representation with quantized Llama (AutoModelForCausalLM + bitsandbytes).
+    See: https://maartengr.github.io/BERTopic/getting_started/representation/llm.html#llama-manual-quantization
+    Set BERTOPIC_REPRESENTATION_LLAMA_MODEL to None to use c-TF-IDF only.
+    device: "cpu" avoids GPU OOM when embeddings use GPU; "auto" uses GPU if available.
+    """
+    if not model_id:
+        return None
+    if prompt is None:
+        prompt = LLAMA_REPRESENTATION_SYSTEM + LLAMA_REPRESENTATION_MAIN
+
+    device_map = "cpu" if (device or "").lower() == "cpu" else "auto"
+    # First load: download + 4-bit quantization can take several minutes; later runs use cache.
+    print(f"Loading quantized Llama '{model_id}' on {device_map} (first run may take a few min)...")
+    bnb_config = transformers.BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_id,
+        trust_remote_code=True,
+        quantization_config=bnb_config,
+        device_map=device_map,
+        low_cpu_mem_usage=True,
+    )
+    model.eval()
+
+    # Greedy decoding (do_sample=False) avoids CUDA assert from bad logits in quantized models
+    generator = transformers.pipeline(
+        model=model,
+        tokenizer=tokenizer,
+        task="text-generation",
+        max_new_tokens=50,
+        repetition_penalty=1.1,
+        do_sample=False,
+    )
+    return TextGeneration(
+        generator,
+        prompt=prompt,
+        nr_docs=nr_docs,
+        pipeline_kwargs={"max_new_tokens": 50, "do_sample": False},
+    )
 
 
 def build_bertopic_model(
@@ -25,10 +100,11 @@ def build_bertopic_model(
     nr_topics: str | int = BERTOPIC_NUM_TOPICS,
     n_gram_range: tuple[int, int] = BERTOPIC_REPRESENTATION_NGRAM_RANGE,
     n_words: int = BERTOPIC_REPRESENTATION_N_WORDS,
+    representation_llama_model: str | None = BERTOPIC_REPRESENTATION_LLAMA_MODEL,
 ) -> BERTopic:
     """
     Build and fit BERTopic with human-readable topic representation.
-    Uses n-gram range (1, 2) and top words for interpretable labels.
+    Uses n-gram range (1, 2) and top words; optionally fine-tunes labels via quantized Llama (AutoModelForCausalLM).
     """
     # Vectorizer for c-TF-IDF topic representation (phrases + single words)
     # Use min_df=1 to avoid errors with small topics; max_df=1.0 allows all words
@@ -39,11 +115,14 @@ def build_bertopic_model(
         max_df=1.0,  # Changed from 0.95 to allow all words (no upper limit)
     )
 
+    representation_model = _make_llama_representation_model(model_id=representation_llama_model)
+
     topic_model = BERTopic(
         embedding_model=embedding_model,
         min_topic_size=min_topic_size,
         nr_topics=nr_topics,
         vectorizer_model=vectorizer,
+        representation_model=representation_model,
         verbose=True,
     )
 
@@ -58,6 +137,7 @@ def build_bertopic_model(
                 min_topic_size=min_topic_size,
                 nr_topics=None,  # Disable auto-reduction
                 vectorizer_model=vectorizer,
+                representation_model=representation_model,
                 verbose=True,
             )
             topic_model.fit(documents)
@@ -93,7 +173,7 @@ def get_topic_labels(topic_model: BERTopic) -> dict[int, str]:
 def fit_bertopic_on_lyrics(
     year_min: int = 2010,
     year_max: int = 2020,
-    max_docs: int | None = 50_000,
+    max_docs: int | None = MAX_DOCS_SUBSET,
     save_path: Path | None = None,
 ) -> tuple[BERTopic, pd.DataFrame, list[int], list[float]]:
     """

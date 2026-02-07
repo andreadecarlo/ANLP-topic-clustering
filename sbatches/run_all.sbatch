@@ -11,20 +11,25 @@
 
 # Run data -> octis -> bertopic in one job (no dependencies between stages)
 set -e
-PROJECT="${ANLP_PROJECT:-$(dirname "$(dirname "$(realpath "$0")")")}"
+# Use submission dir so we're in a writable project path on the compute node
+PROJECT="${ANLP_PROJECT:-${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")}}"
 cd "$PROJECT"
+echo "Working directory: $(pwd)"
 mkdir -p sbatches/logs data/processed models
 
 echo "=== ANLP: full pipeline (data + OCTIS + BERTopic) ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 
 echo "--- 1. Data subset ---"
-uv run anlp data --year-min 2010 --year-max 2020 --max-docs 1000
+uv run anlp data 
+# --year-min 2010 --year-max 2020 --max-docs 1000
 
-echo "--- 2. OCTIS comparison ---"
-uv run anlp octis --year-min 2010 --year-max 2020 --max-docs 1000 --num-topics 5
+echo "--- 2. BERTopic (fit and save) ---"
+uv run anlp bertopic   --save models/bertopic_lyrics
+# --year-min 2010 --year-max 2020 --max-docs 1000
 
-echo "--- 3. BERTopic ---"
-uv run anlp bertopic --year-min 2010 --year-max 2020 --max-docs 1000 --save models/bertopic_lyrics
+echo "--- 3. OCTIS comparison (LDA, NMF, CTM, and saved BERTopic with same metrics) ---"
+uv run anlp octis   --bertopic --bertopic-model models/bertopic_lyrics
+# --year-min 2010 --year-max 2020 --max-docs 1000 --num-topics 5
 
 echo "=== Pipeline done ==="

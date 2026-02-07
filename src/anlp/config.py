@@ -17,12 +17,12 @@ KAGGLE_DATASET = "carlosgdcj/genius-song-lyrics-with-language-information"
 CSV_FILENAME = "song_lyrics.csv"
 
 # Subset for comparing algorithms (full 5M+ is too large)
-YEAR_MIN = 2010
-YEAR_MAX = 2020
-MAX_DOCS_SUBSET = 50_000  # cap for OCTIS comparison (optional)
+YEAR_MIN = 1960
+YEAR_MAX = 1970
+MAX_DOCS_SUBSET = 30_000  # cap for OCTIS comparison (optional)
 
 # OCTIS comparison
-OCTIS_ALGORITHMS = ["LDA", "NMF"]  # add "LSI" if available in your OCTIS; extend with CTM, etc.
+OCTIS_ALGORITHMS = ["LDA", "NMF", "CTM"]  # LSI optional; CTM uses BERT embeddings (slower)
 OCTIS_NUM_TOPICS = 20
 OCTIS_RANDOM_STATE = 42
 
@@ -32,6 +32,10 @@ BERTOPIC_MIN_TOPIC_SIZE = 20
 BERTOPIC_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # fast; use paraphrase-multilingual for non-English
 BERTOPIC_REPRESENTATION_N_WORDS = 5
 BERTOPIC_REPRESENTATION_NGRAM_RANGE = (1, 2)  # human-readable phrases
+# Quantized Llama for topic labels (AutoModelForCausalLM + bitsandbytes). Set to None for c-TF-IDF only.
+BERTOPIC_REPRESENTATION_LLAMA_MODEL = "meta-llama/Llama-2-7b-chat-hf"
+# "cpu" = run Llama on CPU (avoids OOM when embeddings use GPU); "auto" = use GPU if available.
+BERTOPIC_REPRESENTATION_LLAMA_DEVICE = "auto"
 
 # Retrieval
 TOP_K_SIMILAR_SONGS = 10

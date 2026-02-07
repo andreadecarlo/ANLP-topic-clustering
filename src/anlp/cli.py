@@ -6,6 +6,15 @@ import argparse
 import sys
 from pathlib import Path
 
+from anlp.config import (
+    MAX_DOCS_SUBSET,
+    OCTIS_NUM_TOPICS,
+    TOP_K_REPRESENTATIVE_SONGS,
+    TOP_K_SIMILAR_SONGS,
+    YEAR_MAX,
+    YEAR_MIN,
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -15,26 +24,28 @@ def main() -> None:
 
     # Download / prepare data
     p_data = subparsers.add_parser("data", help="Download or prepare lyrics subset")
-    p_data.add_argument("--year-min", type=int, default=2010, help="Min year")
-    p_data.add_argument("--year-max", type=int, default=2020, help="Max year")
-    p_data.add_argument("--max-docs", type=int, default=50_000, help="Max documents in subset")
+    p_data.add_argument("--year-min", type=int, default=YEAR_MIN, help="Min year")
+    p_data.add_argument("--year-max", type=int, default=YEAR_MAX, help="Max year")
+    p_data.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET, help="Max documents in subset")
     p_data.add_argument("--csv", type=Path, default=None, help="Path to CSV (optional)")
     p_data.set_defaults(func=cmd_data)
 
     # OCTIS compare
-    p_octis = subparsers.add_parser("octis", help="Compare OCTIS topic models (LDA, NMF, LSI)")
-    p_octis.add_argument("--year-min", type=int, default=2010)
-    p_octis.add_argument("--year-max", type=int, default=2020)
-    p_octis.add_argument("--max-docs", type=int, default=50_000)
-    p_octis.add_argument("--num-topics", type=int, default=20)
-    p_octis.add_argument("--algorithms", nargs="+", default=["LDA", "NMF"])
+    p_octis = subparsers.add_parser("octis", help="Compare OCTIS topic models (LDA, NMF, LSI) and optionally BERTopic")
+    p_octis.add_argument("--year-min", type=int, default=YEAR_MIN)
+    p_octis.add_argument("--year-max", type=int, default=YEAR_MAX)
+    p_octis.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
+    p_octis.add_argument("--num-topics", type=int, default=OCTIS_NUM_TOPICS)
+    p_octis.add_argument("--algorithms", nargs="+", default=None, help="OCTIS algorithms (default: LDA, NMF, CTM from config)")
+    p_octis.add_argument("--bertopic", action="store_true", help="Also evaluate BERTopic with OCTIS metrics")
+    p_octis.add_argument("--bertopic-model", type=Path, default=None, help="Path to saved BERTopic model (use instead of fitting)")
     p_octis.set_defaults(func=cmd_octis)
 
     # BERTopic fit
     p_bert = subparsers.add_parser("bertopic", help="Fit BERTopic and save model")
-    p_bert.add_argument("--year-min", type=int, default=2010)
-    p_bert.add_argument("--year-max", type=int, default=2020)
-    p_bert.add_argument("--max-docs", type=int, default=50_000)
+    p_bert.add_argument("--year-min", type=int, default=YEAR_MIN)
+    p_bert.add_argument("--year-max", type=int, default=YEAR_MAX)
+    p_bert.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
     p_bert.add_argument("--save", type=Path, default=None, help="Model save path")
     p_bert.set_defaults(func=cmd_bertopic)
 
@@ -42,14 +53,14 @@ def main() -> None:
     p_similar = subparsers.add_parser("similar", help="Get similar songs for a song (by doc index)")
     p_similar.add_argument("doc_id", type=int, help="Document index (row in processed corpus)")
     p_similar.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
-    p_similar.add_argument("--top-k", type=int, default=10)
+    p_similar.add_argument("--top-k", type=int, default=TOP_K_SIMILAR_SONGS)
     p_similar.set_defaults(func=cmd_similar)
 
     # Representative songs for topic
     p_repr = subparsers.add_parser("representative", help="Get most representative songs for a topic")
     p_repr.add_argument("topic_id", type=int, help="Topic ID")
     p_repr.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
-    p_repr.add_argument("--top-k", type=int, default=10)
+    p_repr.add_argument("--top-k", type=int, default=TOP_K_REPRESENTATIVE_SONGS)
     p_repr.set_defaults(func=cmd_representative)
 
     args = parser.parse_args()
@@ -81,6 +92,8 @@ def cmd_octis(args: argparse.Namespace) -> None:
         max_docs=args.max_docs,
         algorithms=args.algorithms,
         num_topics=args.num_topics,
+        include_bertopic=args.bertopic,
+        bertopic_model_path=args.bertopic_model,
     )
     print(results.to_string(index=False))
 

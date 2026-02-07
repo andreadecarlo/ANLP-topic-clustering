@@ -10,9 +10,11 @@
 #SBATCH --error=sbatches/logs/01_data_%j.err
 
 set -e
-PROJECT="${ANLP_PROJECT:-$(dirname "$(dirname "$(realpath "$0")")")}"
+# Use submission dir so we're in a writable project path on the compute node
+PROJECT="${ANLP_PROJECT:-${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")}}"
 cd "$PROJECT"
-mkdir -p sbatches/logs
+echo "Working directory: $(pwd)"
+mkdir -p sbatches/logs data/processed models
 
 echo "=== ANLP: prepare data subset ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID  Partition: $SLURM_JOB_PARTITION"

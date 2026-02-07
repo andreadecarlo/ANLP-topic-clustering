@@ -1,21 +1,24 @@
 #!/bin/bash
 #SBATCH --job-name=anlp-bertopic
 #SBATCH --partition=edu-long
+#SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --time=08:00:00
+#SBATCH --mem=24G
+##SBATCH --time=08:00:00
 #SBATCH --output=sbatches/logs/03_bertopic_%j.out
-#SBATCH --error=sbatches/logs/03_bertopic_%j.err
-# Optional: run after data job: --dependency=afterok:<jobid_of_01_data>
 
 set -e
-PROJECT="${ANLP_PROJECT:-$(dirname "$(dirname "$(realpath "$0")")")}"
+# Use submission dir so we're in a writable project path on the compute node
+PROJECT="${ANLP_PROJECT:-${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")}}"
 cd "$PROJECT"
-mkdir -p sbatches/logs models
+echo "Working directory: $(pwd)"
+mkdir -p sbatches/logs data/processed models
 
 echo "=== ANLP: BERTopic fit (human-readable topics) ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
-uv run anlp bertopic --year-min 2010 --year-max 2020 --max-docs 50000 --save models/bertopic_lyrics
+# Reduce CUDA fragmentation when reserved-but-unallocated memory is large
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+uv run anlp bertopic --year-min 1960 --year-max 1970 --max-docs 1000 --save models/bertopic_lyrics_finetuned
 echo "Done."
