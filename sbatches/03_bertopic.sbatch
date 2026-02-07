@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=24G
+#SBATCH --mem=32G
 ##SBATCH --time=08:00:00
 #SBATCH --output=sbatches/logs/03_bertopic_%j.out
 
@@ -20,5 +20,5 @@ echo "=== ANLP: BERTopic fit (human-readable topics) ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 # Reduce CUDA fragmentation when reserved-but-unallocated memory is large
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-uv run anlp bertopic --year-min 1960 --year-max 1970 --max-docs 1000 --save models/bertopic_lyrics_finetuned
+uv run anlp bertopic --year-min 1960 --year-max 1970 --max-docs 30_000 --save models/bertopic_finetuned_30k  --visualize
 echo "Done."

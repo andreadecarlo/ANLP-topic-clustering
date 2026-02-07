@@ -1,9 +1,11 @@
 """BERTopic pipeline with human-readable topic labels for song lyrics."""
 
+import gc
 from pathlib import Path
 
 import pandas as pd
 import torch
+from datasets import Dataset
 import transformers
 from bertopic import BERTopic
 from bertopic.representation import TextGeneration
@@ -56,6 +58,11 @@ def _make_llama_representation_model(
         return None
     if prompt is None:
         prompt = LLAMA_REPRESENTATION_SYSTEM + LLAMA_REPRESENTATION_MAIN
+
+    # Free memory before loading Llama (helps when embedding model already used GPU)
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     device_map = "cpu" if (device or "").lower() == "cpu" else "auto"
     # First load: download + 4-bit quantization can take several minutes; later runs use cache.
@@ -117,6 +124,10 @@ def build_bertopic_model(
 
     representation_model = _make_llama_representation_model(model_id=representation_llama_model)
 
+    # Use dict so we can extract Llama labels and set them as topic names (tutorial: Topic_Modeling_with_Llama2.ipynb)
+    if representation_model is not None:
+        representation_model = {"Llama2": representation_model}
+
     topic_model = BERTopic(
         embedding_model=embedding_model,
         min_topic_size=min_topic_size,
@@ -149,22 +160,51 @@ def build_bertopic_model(
         n_gram_range=n_gram_range,
         top_n_words=n_words,
     )
+
+    # Set Llama2 labels as the displayed topic names (follow Topic_Modeling_with_Llama2.ipynb)
+    if representation_model is not None and "Llama2" in representation_model:
+        try:
+            full_repr = topic_model.get_topics(full=True)
+            llama2_repr = full_repr.get("Llama2")
+            main_repr = full_repr.get("Main")  # c-TF-IDF fallback when Llama returns empty/short
+            if llama2_repr is not None:
+                # set_topic_labels expects a list in sorted(unique_topics) order: -1, 0, 1, 2, ...
+                topic_ids = sorted(llama2_repr.keys())
+                llama2_labels = []
+                for tid in topic_ids:
+                    label = llama2_repr[tid]
+                    text = (label[0][0].split("\n")[0] if label else "").strip()
+                    # Fall back to c-TF-IDF when Llama returns empty or just a number (e.g. "1", "2")
+                    if not text or text.isdigit():
+                        if main_repr and tid in main_repr and main_repr[tid]:
+                            text = " ".join(w[0] for w in main_repr[tid][:5])
+                        else:
+                            text = "Outliers" if tid == -1 else str(tid)
+                    llama2_labels.append(text)
+                topic_model.set_topic_labels(llama2_labels)
+        except (KeyError, TypeError, IndexError):
+            pass
+
     return topic_model
 
 
 def get_topic_labels(topic_model: BERTopic) -> dict[int, str]:
-    """Get human-readable topic labels (top terms or custom labels)."""
+    """Get human-readable topic labels (Llama/custom if set via set_topic_labels, else c-TF-IDF names)."""
     info = topic_model.get_topic_info()
+    # Prefer CustomName (Llama labels from set_topic_labels); Name is c-TF-IDF
+    use_custom = "CustomName" in info.columns and info["CustomName"].notna().any()
     labels = {}
     for _, row in info.iterrows():
         tid = row["Topic"]
-        name = row["Name"]
-        if tid == -1:
-            labels[-1] = "Outliers"
+        if use_custom and "CustomName" in info.columns:
+            name = row.get("CustomName", row["Name"])
         else:
-            # Name is already "topic_0_word1_word2_..." – make it readable
-            label = name.replace("_", " ").strip()
-            if label.startswith("topic "):
+            name = row["Name"]
+        if tid == -1:
+            labels[-1] = "Outliers" if pd.isna(name) or not str(name).strip() else str(name).strip()
+        else:
+            label = str(name).replace("_", " ").strip()
+            if label.startswith("topic ") and len(label) > 6 and label[6:7].isdigit():
                 label = " ".join(label.split()[2:])  # drop "topic N"
             labels[tid] = label or str(tid)
     return labels
@@ -177,33 +217,58 @@ def fit_bertopic_on_lyrics(
     save_path: Path | None = None,
 ) -> tuple[BERTopic, pd.DataFrame, list[int], list[float]]:
     """
-    Load lyrics subset, fit BERTopic, return model, metadata DataFrame, topics, and probs.
+    Load lyrics subset (Hugging Face Dataset), fit BERTopic, return model, metadata DataFrame, topics, and probs.
+    Uses Dataset for loading/filtering to avoid loading the full CSV into memory.
     """
     ensure_dirs()
-    df = load_lyrics_subset(year_min=year_min, year_max=year_max, max_docs=max_docs)
-    corpus, df_clean = get_lyrics_corpus(df, min_chars=100)
+    dataset = load_lyrics_subset(
+        year_min=year_min, year_max=year_max, max_docs=max_docs or MAX_DOCS_SUBSET
+    )
+    corpus, dataset_clean = get_lyrics_corpus(dataset, min_chars=100)
+
+    # Free memory before fitting (helps when re-running or with many docs)
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     topic_model = build_bertopic_model(corpus)
     topics, probs = topic_model.transform(corpus)
 
-    df_clean = df_clean.copy()
-    df_clean["topic"] = topics
-    df_clean["topic_prob"] = probs
+    dataset_clean = dataset_clean.add_column("topic", topics)
+    dataset_clean = dataset_clean.add_column("topic_prob", probs)
 
     if save_path is None:
         save_path = MODELS_DIR / "bertopic_lyrics"
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    topic_model.save(str(save_path))
-    # Save docs DataFrame (parquet preferred, fallback to CSV)
+    # Save with safetensors (light, safe); c-TF-IDF and embedding model pointer for reload
+    emb_model = BERTOPIC_EMBEDDING_MODEL
+    if "/" not in emb_model:
+        emb_model = f"sentence-transformers/{emb_model}"
+    topic_model.save(
+        str(save_path),
+        serialization="safetensors",
+        save_ctfidf=True,
+        save_embedding_model=emb_model,
+    )
+    # Save 2D reduced embeddings for visualizations (document map, static topic map)
+    from anlp.bertopic_viz import compute_and_save_reduced_embeddings
+
+    reduced_path = save_path.parent / (save_path.name + "_reduced_embeddings.npy")
+    compute_and_save_reduced_embeddings(
+        topic_model.embedding_model,
+        corpus,
+        reduced_path,
+    )
+    # Save docs as parquet from Dataset (avoids large DataFrame in memory)
     docs_path = save_path.parent / (save_path.name + "_docs.parquet")
     try:
-        df_clean.to_parquet(docs_path, index=False)
-    except ImportError:
-        # Fallback to CSV if parquet engine not available
-        docs_path = save_path.parent / (save_path.name + "_docs.csv")
-        df_clean.to_csv(docs_path, index=False)
+        dataset_clean.to_parquet(str(docs_path))
+    except (AttributeError, TypeError):
+        dataset_clean.to_pandas().to_parquet(docs_path, index=False)
 
+    # Return small DataFrame for CLI/retrieval compatibility
+    df_clean = dataset_clean.to_pandas()
     return topic_model, df_clean, topics, probs
 
 

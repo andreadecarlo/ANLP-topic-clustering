@@ -169,8 +169,10 @@ def compare_octis(
     ensure_dirs()
     algorithms = algorithms or OCTIS_ALGORITHMS
 
-    df = load_lyrics_subset(year_min=year_min, year_max=year_max, max_docs=max_docs)
-    corpus, df_clean = get_lyrics_corpus(df, min_chars=100)
+    dataset = load_lyrics_subset(
+        year_min=year_min, year_max=year_max, max_docs=max_docs
+    )
+    corpus, _ = get_lyrics_corpus(dataset, min_chars=100)
     tokenized = tokenize_for_octis(corpus)
     dataset, tokenized_filtered = build_octis_dataset(tokenized)
 

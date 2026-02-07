@@ -8,6 +8,7 @@ from pathlib import Path
 
 from anlp.config import (
     MAX_DOCS_SUBSET,
+    MODELS_DIR,
     OCTIS_NUM_TOPICS,
     TOP_K_REPRESENTATIVE_SONGS,
     TOP_K_SIMILAR_SONGS,
@@ -47,7 +48,14 @@ def main() -> None:
     p_bert.add_argument("--year-max", type=int, default=YEAR_MAX)
     p_bert.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
     p_bert.add_argument("--save", type=Path, default=None, help="Model save path")
+    p_bert.add_argument("--visualize", action="store_true", help="Generate visualizations after fitting")
     p_bert.set_defaults(func=cmd_bertopic)
+
+    # BERTopic visualizations (from saved model + docs + reduced embeddings)
+    p_viz = subparsers.add_parser("visualize", help="Generate BERTopic visualizations from saved model")
+    p_viz.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
+    p_viz.add_argument("--out-dir", type=Path, default=None, help="Output directory for HTML/PNG (default: next to model)")
+    p_viz.set_defaults(func=cmd_visualize)
 
     # Similar songs
     p_similar = subparsers.add_parser("similar", help="Get similar songs for a song (by doc index)")
@@ -73,14 +81,16 @@ def main() -> None:
 def cmd_data(args: argparse.Namespace) -> None:
     from anlp.data.load_lyrics import load_lyrics_subset
 
-    df = load_lyrics_subset(
+    dataset = load_lyrics_subset(
         year_min=args.year_min,
         year_max=args.year_max,
         max_docs=args.max_docs,
         csv_path=args.csv,
     )
-    print(f"Loaded {len(df)} documents (years {args.year_min}-{args.year_max})")
-    print(df.head())
+    print(f"Loaded {len(dataset)} documents (years {args.year_min}-{args.year_max})")
+    n_show = min(5, len(dataset))
+    if n_show:
+        print(dataset.select(range(n_show)).to_pandas().head())
 
 
 def cmd_octis(args: argparse.Namespace) -> None:
@@ -101,16 +111,46 @@ def cmd_octis(args: argparse.Namespace) -> None:
 def cmd_bertopic(args: argparse.Namespace) -> None:
     from anlp.bertopic_pipeline import fit_bertopic_on_lyrics
     from anlp.bertopic_pipeline import get_topic_labels
+    from anlp.bertopic_viz import load_reduced_embeddings, run_visualizations
+
+    save_path = args.save or (MODELS_DIR / "bertopic_lyrics")
+    save_path = Path(save_path)
 
     model, docs_df, topics, probs = fit_bertopic_on_lyrics(
         year_min=args.year_min,
         year_max=args.year_max,
         max_docs=args.max_docs,
-        save_path=args.save,
+        save_path=save_path,
     )
     labels = get_topic_labels(model)
-    print(f"Fitted BERTopic: {len(set(topics)) - (1 if -1 in topics else 0)} topics")
-    print("Topic labels (sample):", list(labels.items())[:5])
+    n_topics = len(set(topics)) - (1 if -1 in topics else 0)
+    print(f"Fitted BERTopic: {n_topics} topics")
+    print("Topic labels:")
+    for tid in sorted(labels.keys()):
+        print(f"  {tid}: {labels[tid]}")
+
+    if args.visualize:
+        reduced_path = save_path.parent / (save_path.name + "_reduced_embeddings.npy")
+        if reduced_path.exists():
+            reduced = load_reduced_embeddings(reduced_path)
+            out_dir = save_path.parent / (save_path.name + "_viz")
+            titles = docs_df.get("title", docs_df.get("song", None))
+            if titles is None and "lyrics" in docs_df.columns:
+                titles = docs_df["lyrics"].str.slice(0, 80).tolist()
+            else:
+                titles = titles.tolist() if hasattr(titles, "tolist") else list(titles)
+            run_visualizations(
+                model,
+                docs_df["lyrics"].tolist(),
+                topics,
+                reduced,
+                out_dir,
+                titles=titles,
+                doc_lengths=docs_df["lyrics"].str.len().tolist(),
+            )
+            print(f"Visualizations saved to {out_dir}")
+        else:
+            print("Reduced embeddings not found; skipping visualizations.", file=sys.stderr)
 
 
 def cmd_similar(args: argparse.Namespace) -> None:
@@ -131,6 +171,58 @@ def cmd_similar(args: argparse.Namespace) -> None:
         args.doc_id, docs_df, topics, probs, top_k=args.top_k
     )
     print(out.to_string(index=False))
+
+
+def cmd_visualize(args: argparse.Namespace) -> None:
+    from anlp.bertopic_pipeline import load_bertopic_model
+    from anlp.bertopic_viz import load_reduced_embeddings, run_visualizations
+
+    model_path = Path(args.model)
+    model = load_bertopic_model(model_path)
+    docs_path = model_path.parent / (model_path.name + "_docs.parquet")
+    reduced_path = model_path.parent / (model_path.name + "_reduced_embeddings.npy")
+    if not docs_path.exists():
+        print("Docs parquet not found at", docs_path, file=sys.stderr)
+        sys.exit(1)
+    if not reduced_path.exists():
+        print("Reduced embeddings not found at", reduced_path, file=sys.stderr)
+        sys.exit(1)
+
+    import pandas as pd
+
+    docs_df = pd.read_parquet(docs_path)
+    reduced = load_reduced_embeddings(reduced_path)
+    # Use topics saved with docs (parquet has "topic" column from fit)
+    if "topic" in docs_df.columns:
+        topics = docs_df["topic"].tolist()
+    else:
+        topics = getattr(model, "topics_", None)
+    if not topics:
+        print("No topics found (parquet needs 'topic' column or model.topics_).", file=sys.stderr)
+        sys.exit(1)
+    # Align: same length
+    n = min(len(docs_df), len(topics), len(reduced))
+    docs_df = docs_df.iloc[:n]
+    topics = topics[:n]
+    reduced = reduced[:n]
+
+    out_dir = args.out_dir or (model_path.parent / (model_path.name + "_viz"))
+    out_dir = Path(out_dir)
+    titles = docs_df.get("title", docs_df.get("song", None))
+    if titles is None:
+        titles = docs_df["lyrics"].str.slice(0, 80).tolist() if "lyrics" in docs_df.columns else None
+    else:
+        titles = titles.tolist()
+    run_visualizations(
+        model,
+        docs_df["lyrics"].tolist(),
+        topics,
+        reduced,
+        out_dir,
+        titles=titles,
+        doc_lengths=docs_df["lyrics"].str.len().tolist(),
+    )
+    print(f"Visualizations saved to {out_dir}")
 
 
 def cmd_representative(args: argparse.Namespace) -> None:
