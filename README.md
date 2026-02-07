@@ -90,9 +90,9 @@ from anlp.octis_compare import compare_octis, build_octis_dataset, run_octis_mod
 from anlp.bertopic_pipeline import fit_bertopic_on_lyrics, get_topic_labels, load_bertopic_model
 from anlp.retrieval import similar_songs_for_song, representative_songs_for_topic
 
-# Load subset
-df = load_lyrics_subset(year_min=2010, year_max=2020, max_docs=50_000)
-corpus, df_clean = get_lyrics_corpus(df)
+# Load subset (Hugging Face Dataset for lower memory use)
+dataset = load_lyrics_subset(year_min=2010, year_max=2020, max_docs=50_000)
+corpus, docs_clean = get_lyrics_corpus(dataset)
 
 # Compare OCTIS
 results = compare_octis(year_min=2010, year_max=2020, max_docs=50_000)
