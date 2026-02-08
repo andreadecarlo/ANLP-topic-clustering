@@ -23,6 +23,7 @@ dependencies = [
     "matplotlib>=3.7",
     "seaborn>=0.12",
     "adjusttext>=0.7",
+    "kaleido>=0.2.0",
 ]
 
 [project.optional-dependencies]

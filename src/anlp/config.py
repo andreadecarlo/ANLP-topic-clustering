@@ -29,7 +29,7 @@ OCTIS_RANDOM_STATE = 42
 # BERTopic
 # None = keep all clusters (fine-grained); "auto" = merge similar topics (can reduce to few); int = target count
 # we cannot get more than 80 topics finetuned with llama2-7b-chat-hf
-BERTOPIC_NUM_TOPICS = "auto"
+BERTOPIC_NUM_TOPICS = 30
 # Smaller = more, smaller topics (more fine-grained); larger = fewer, broader topics
 BERTOPIC_MIN_TOPIC_SIZE = 15
 BERTOPIC_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # fast; use paraphrase-multilingual for non-English

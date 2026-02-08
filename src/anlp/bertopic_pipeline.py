@@ -251,21 +251,48 @@ def fit_bertopic_on_lyrics(
         save_ctfidf=True,
         save_embedding_model=emb_model,
     )
-    # Save 2D reduced embeddings for visualizations (document map, static topic map)
+    # Save 2D reduced embeddings and docs parquet for visualize_documents / load_visualize_save
     from anlp.bertopic_viz import compute_and_save_reduced_embeddings
 
     reduced_path = save_path.parent / (save_path.name + "_reduced_embeddings.npy")
     compute_and_save_reduced_embeddings(
-        topic_model.embedding_model,
+        topic_model,
         corpus,
         reduced_path,
     )
-    # Save docs as parquet from Dataset (avoids large DataFrame in memory)
     docs_path = save_path.parent / (save_path.name + "_docs.parquet")
     try:
         dataset_clean.to_parquet(str(docs_path))
     except (AttributeError, TypeError):
         dataset_clean.to_pandas().to_parquet(docs_path, index=False)
+    print(f"Saved model artifacts: {save_path}, {reduced_path.name}, {docs_path.name}")
+
+    # Optional: run document map + barchart + topic map (notebook-style); do not interrupt on failure
+    try:
+        from anlp.bertopic_viz import load_reduced_embeddings, run_visualizations
+
+        reduced = load_reduced_embeddings(reduced_path)
+        out_dir = save_path.parent / (save_path.name + "_viz")
+        df_clean = dataset_clean.to_pandas()
+        titles = df_clean.get("title", df_clean.get("song", None))
+        if titles is None:
+            titles = [str(c)[:80] for c in corpus]
+        else:
+            titles = titles.tolist()
+        doc_lengths = [len(c) for c in corpus]
+        run_visualizations(
+            topic_model,
+            corpus,
+            topics,
+            reduced,
+            out_dir,
+            titles=titles,
+            doc_lengths=doc_lengths,
+        )
+        print(f"Visualizations saved to {out_dir}")
+    except Exception as e:
+        import sys
+        print(f"Visualization skipped (non-fatal): {e}", file=sys.stderr)
 
     # Return small DataFrame for CLI/retrieval compatibility
     df_clean = dataset_clean.to_pandas()

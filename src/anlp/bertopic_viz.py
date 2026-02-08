@@ -35,8 +35,33 @@ TOPIC_COLORS = [
 ]
 
 
+def compute_reduced_embeddings(
+    topic_model: BERTopic,
+    documents: list[str],
+    n_neighbors: int = 15,
+    min_dist: float = 0.0,
+    metric: str = "cosine",
+    random_state: int = 42,
+) -> np.ndarray:
+    """
+    Embed documents via the topic model's backend, reduce to 2D with UMAP.
+    Returns the 2D array for visualize_documents (no file saved).
+    """
+    from umap import UMAP
+
+    emb = topic_model._extract_embeddings(documents, method="document", verbose=True)
+    reducer = UMAP(
+        n_neighbors=n_neighbors,
+        n_components=2,
+        min_dist=min_dist,
+        metric=metric,
+        random_state=random_state,
+    )
+    return reducer.fit_transform(emb)
+
+
 def compute_and_save_reduced_embeddings(
-    embedding_model,
+    topic_model: BERTopic,
     documents: list[str],
     save_path: Path,
     n_neighbors: int = 15,
@@ -45,20 +70,14 @@ def compute_and_save_reduced_embeddings(
     random_state: int = 42,
 ) -> np.ndarray:
     """
-    Encode documents, reduce to 2D with UMAP, and save as .npy.
-    Returns the 2D array for immediate use.
+    Embed documents via the topic model's backend, reduce to 2D with UMAP, and save as .npy.
+    Returns the 2D array for immediate use (tutorial: same reduced_embeddings for visualize_documents).
+    Uses topic_model._extract_embeddings so any backend (SentenceTransformerBackend, etc.) works.
     """
-    from umap import UMAP
-
-    emb = embedding_model.encode(documents, show_progress_bar=True)
-    reducer = UMAP(
-        n_neighbors=n_neighbors,
-        n_components=2,
-        min_dist=min_dist,
-        metric=metric,
-        random_state=random_state,
+    reduced = compute_reduced_embeddings(
+        topic_model, documents,
+        n_neighbors=n_neighbors, min_dist=min_dist, metric=metric, random_state=random_state,
     )
-    reduced = reducer.fit_transform(emb)
     path = Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.save(path, reduced)
