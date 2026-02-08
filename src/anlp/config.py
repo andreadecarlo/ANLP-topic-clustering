@@ -19,7 +19,7 @@ CSV_FILENAME = "song_lyrics.csv"
 # Subset for comparing algorithms (full 5M+ is too large)
 YEAR_MIN = 1960
 YEAR_MAX = 1970
-MAX_DOCS_SUBSET = 30_000  # cap for OCTIS comparison (optional)
+MAX_DOCS_SUBSET = 50_000  # cap for OCTIS comparison (optional)
 
 # OCTIS comparison
 OCTIS_ALGORITHMS = ["LDA", "NMF", "CTM"]  # LSI optional; CTM uses BERT embeddings (slower)
@@ -34,11 +34,18 @@ BERTOPIC_NUM_TOPICS = 15
 BERTOPIC_MIN_TOPIC_SIZE = 15
 BERTOPIC_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # fast; use paraphrase-multilingual for non-English
 BERTOPIC_REPRESENTATION_N_WORDS = 5
-BERTOPIC_REPRESENTATION_NGRAM_RANGE = (1, 2)  # human-readable phrases
+BERTOPIC_REPRESENTATION_NGRAM_RANGE = (1, 3)  # human-readable phrases
+# CountVectorizer for c-TF-IDF: min_df must be <= max_df; use 1 to avoid errors with small topics.
+BERTOPIC_VECTORIZER_MIN_DF = 10
 # Lighter model fits on GPU with embedding model. TinyLlama 1.1B 4-bit ~1–2 GB; Llama-2-7b needs device="cpu".
-BERTOPIC_REPRESENTATION_LLAMA_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+BERTOPIC_REPRESENTATION_LLAMA_MODEL = "meta-llama/Llama-2-7b-chat-hf"
 # "auto" = GPU (use with light model); "cpu" = CPU (slower, for Llama-2-7b if needed).
 BERTOPIC_REPRESENTATION_LLAMA_DEVICE = "auto"
+# Number of representative documents per topic in the [DOCUMENTS] section of the representation prompt.
+BERTOPIC_REPRESENTATION_NR_DOCS = 16
+# Truncate each doc in [DOCUMENTS] to this many words ("whitespace" tokenizer). None = no truncation.
+BERTOPIC_REPRESENTATION_DOC_LENGTH = 100
 # Set BERTOPIC_REPRESENTATION_LLAMA_MODEL = None to skip LLM and use c-TF-IDF only.
 
 # Retrieval

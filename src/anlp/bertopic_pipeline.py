@@ -15,10 +15,13 @@ from anlp.config import (
     BERTOPIC_EMBEDDING_MODEL,
     BERTOPIC_MIN_TOPIC_SIZE,
     BERTOPIC_NUM_TOPICS,
+    BERTOPIC_REPRESENTATION_DOC_LENGTH,
     BERTOPIC_REPRESENTATION_LLAMA_DEVICE,
     BERTOPIC_REPRESENTATION_LLAMA_MODEL,
     BERTOPIC_REPRESENTATION_N_WORDS,
     BERTOPIC_REPRESENTATION_NGRAM_RANGE,
+    BERTOPIC_REPRESENTATION_NR_DOCS,
+    BERTOPIC_VECTORIZER_MIN_DF,
     MAX_DOCS_SUBSET,
     MODELS_DIR,
     ensure_dirs,
@@ -60,10 +63,13 @@ def _make_llama_representation_model(
     model_id: str | None = BERTOPIC_REPRESENTATION_LLAMA_MODEL,
     device: str = BERTOPIC_REPRESENTATION_LLAMA_DEVICE,
     prompt: str | None = None,
-    nr_docs: int = 4,
+    nr_docs: int = BERTOPIC_REPRESENTATION_NR_DOCS,
+    doc_length: int | None = BERTOPIC_REPRESENTATION_DOC_LENGTH,
+    tokenizer: str = "whitespace",
 ):
     """Build BERTopic representation with a quantized LLM (AutoModelForCausalLM + bitsandbytes).
     Use a light model (e.g. TinyLlama 1.1B) with device="auto" for GPU; Llama-2-7b needs device="cpu".
+    doc_length truncates each document in [DOCUMENTS] (tokenizer: "whitespace" = words, "char" = chars).
     Set BERTOPIC_REPRESENTATION_LLAMA_MODEL to None to use c-TF-IDF only.
     """
     if not model_id:
@@ -116,6 +122,8 @@ def _make_llama_representation_model(
         generator,
         prompt=prompt,
         nr_docs=nr_docs,
+        doc_length=doc_length,
+        tokenizer=tokenizer,
         pipeline_kwargs={"max_new_tokens": 50, "do_sample": False},
     )
 
@@ -134,12 +142,11 @@ def build_bertopic_model(
     Uses n-gram range (1, 2) and top words; optionally fine-tunes labels via quantized Llama (AutoModelForCausalLM).
     """
     # Vectorizer for c-TF-IDF topic representation (phrases + single words)
-    # Use min_df=1 to avoid errors with small topics; max_df=1.0 allows all words
     vectorizer = CountVectorizer(
         ngram_range=n_gram_range,
         stop_words="english",
-        min_df=1,  # Changed from 2 to avoid "max_df < min_df" error with small topics
-        max_df=1.0,  # Changed from 0.95 to allow all words (no upper limit)
+        min_df=BERTOPIC_VECTORIZER_MIN_DF,
+        max_df=1.0,
     )
 
     representation_model = _make_llama_representation_model(model_id=representation_llama_model)
