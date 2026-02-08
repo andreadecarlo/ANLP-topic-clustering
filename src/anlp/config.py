@@ -29,17 +29,17 @@ OCTIS_RANDOM_STATE = 42
 # BERTopic
 # None = keep all clusters (fine-grained); "auto" = merge similar topics (can reduce to few); int = target count
 # we cannot get more than 80 topics finetuned with llama2-7b-chat-hf
-BERTOPIC_NUM_TOPICS = 30
+BERTOPIC_NUM_TOPICS = 15
 # Smaller = more, smaller topics (more fine-grained); larger = fewer, broader topics
 BERTOPIC_MIN_TOPIC_SIZE = 15
 BERTOPIC_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # fast; use paraphrase-multilingual for non-English
 BERTOPIC_REPRESENTATION_N_WORDS = 5
 BERTOPIC_REPRESENTATION_NGRAM_RANGE = (1, 2)  # human-readable phrases
-# Quantized Llama for topic labels (AutoModelForCausalLM + bitsandbytes). Set to None for c-TF-IDF only.
-BERTOPIC_REPRESENTATION_LLAMA_MODEL = "meta-llama/Llama-2-7b-chat-hf"
-# "cpu" = run Llama on CPU (avoids OOM with many topics); "auto" = use GPU (can OOM with 100+ topics).
-BERTOPIC_REPRESENTATION_LLAMA_DEVICE = "cpu"
-# Set BERTOPIC_REPRESENTATION_LLAMA_MODEL = None to skip Llama and use c-TF-IDF only (frees most memory).
+# Lighter model fits on GPU with embedding model. TinyLlama 1.1B 4-bit ~1–2 GB; Llama-2-7b needs device="cpu".
+BERTOPIC_REPRESENTATION_LLAMA_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# "auto" = GPU (use with light model); "cpu" = CPU (slower, for Llama-2-7b if needed).
+BERTOPIC_REPRESENTATION_LLAMA_DEVICE = "auto"
+# Set BERTOPIC_REPRESENTATION_LLAMA_MODEL = None to skip LLM and use c-TF-IDF only.
 
 # Retrieval
 TOP_K_SIMILAR_SONGS = 10

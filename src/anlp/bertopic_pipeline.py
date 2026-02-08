@@ -2,6 +2,7 @@
 
 import gc
 from pathlib import Path
+from typing import Any, List, Mapping, Tuple
 
 import pandas as pd
 import torch
@@ -9,7 +10,10 @@ from datasets import Dataset
 import transformers
 from bertopic import BERTopic
 from bertopic.representation import TextGeneration
+from bertopic.representation._utils import truncate_document
+from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import CountVectorizer
+from tqdm import tqdm
 
 from anlp.config import (
     BERTOPIC_EMBEDDING_MODEL,
@@ -25,7 +29,7 @@ from anlp.config import (
 )
 from anlp.data.load_lyrics import load_lyrics_subset, get_lyrics_corpus
 
-# Llama-style prompt for topic labeling: [KEYWORDS] and [DOCUMENTS] filled by BERTopic (tutorial format)
+# Llama-2-style prompt for topic labeling: [KEYWORDS] and [DOCUMENTS] filled by BERTopic
 LLAMA_REPRESENTATION_SYSTEM = """<s>[INST] <<SYS>>
 You are a helpful assistant for labeling topics. Return only the topic label, nothing else.
 <</SYS>>
@@ -42,6 +46,79 @@ Based on the information above, create a short label for this topic. Return only
 [/INST]
 """
 
+# TinyLlama / Zephyr-style chat format (<|system|>, <|user|>, <|assistant|>)
+TINYLLAMA_REPRESENTATION_PROMPT = """<|system|>
+You are a helpful assistant for labeling topics. Return only the topic label, nothing else.
+<|user|>
+I have a topic that contains the following documents:
+[DOCUMENTS]
+
+The topic is described by the following keywords: '[KEYWORDS]'.
+
+Based on the information above, create a short label for this topic. Return only the label.
+<|assistant|>
+"""
+
+
+class BatchedTextGeneration(TextGeneration):
+    """TextGeneration that batches prompts so the pipeline runs on a dataset, avoiding
+    the 'using the pipelines sequentially on GPU' warning and improving GPU efficiency.
+    """
+
+    def __init__(self, *args: Any, batch_size: int = 8, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.batch_size = batch_size
+
+    def extract_topics(
+        self,
+        topic_model: Any,
+        documents: pd.DataFrame,
+        c_tf_idf: csr_matrix,
+        topics: Mapping[str, List[Tuple[str, float]]],
+    ) -> Mapping[str, List[Tuple[str, float]]]:
+        # Build (topic_id, prompt) in stable order
+        from bertopic.representation._textgeneration import DEFAULT_PROMPT
+
+        if self.prompt != DEFAULT_PROMPT and "[DOCUMENTS]" in self.prompt:
+            repr_docs_mappings, _, _, _ = topic_model._extract_representative_docs(
+                c_tf_idf, documents, topics, 500, self.nr_docs, self.diversity
+            )
+        else:
+            repr_docs_mappings = {topic: None for topic in topics.keys()}
+
+        topic_ids: List[int] = []
+        prompts: List[str] = []
+        for topic, docs in repr_docs_mappings.items():
+            truncated_docs = (
+                [truncate_document(topic_model, self.doc_length, self.tokenizer, doc) for doc in docs]
+                if docs is not None
+                else docs
+            )
+            prompt = self._create_prompt(truncated_docs, topic, topics)
+            self.prompts_.append(prompt)
+            topic_ids.append(topic)
+            prompts.append(prompt)
+
+        # Run pipeline in batches (list input avoids "using pipelines sequentially" warning)
+        updated_topics: dict[int, List[Tuple[str, float]]] = {}
+        for start in tqdm(
+            range(0, len(prompts), self.batch_size),
+            disable=not topic_model.verbose,
+            desc="Representation batches",
+        ):
+            batch_prompts = prompts[start : start + self.batch_size]
+            batch_ids = topic_ids[start : start + self.batch_size]
+            batch_results = self.model(batch_prompts, **self.pipeline_kwargs)
+            for topic_id, prompt, result_list in zip(batch_ids, batch_prompts, batch_results):
+                topic_description = [
+                    (d["generated_text"].replace(prompt, "").strip(), 1) for d in result_list
+                ]
+                if len(topic_description) < 10:
+                    topic_description += [("", 0) for _ in range(10 - len(topic_description))]
+                updated_topics[topic_id] = topic_description
+
+        return updated_topics
+
 
 def _make_llama_representation_model(
     model_id: str | None = BERTOPIC_REPRESENTATION_LLAMA_MODEL,
@@ -49,24 +126,28 @@ def _make_llama_representation_model(
     prompt: str | None = None,
     nr_docs: int = 4,
 ):
-    """Build BERTopic representation with quantized Llama (AutoModelForCausalLM + bitsandbytes).
-    See: https://maartengr.github.io/BERTopic/getting_started/representation/llm.html#llama-manual-quantization
+    """Build BERTopic representation with a quantized LLM (AutoModelForCausalLM + bitsandbytes).
+    Use a light model (e.g. TinyLlama 1.1B) with device="auto" for GPU; Llama-2-7b needs device="cpu".
     Set BERTOPIC_REPRESENTATION_LLAMA_MODEL to None to use c-TF-IDF only.
-    device: "cpu" avoids GPU OOM when embeddings use GPU; "auto" uses GPU if available.
     """
     if not model_id:
         return None
     if prompt is None:
-        prompt = LLAMA_REPRESENTATION_SYSTEM + LLAMA_REPRESENTATION_MAIN
+        # TinyLlama uses <|system|>/<|user|>/<|assistant|>; Llama-2 uses [INST]/[SYS]
+        if "TinyLlama" in model_id:
+            prompt = TINYLLAMA_REPRESENTATION_PROMPT
+        else:
+            prompt = LLAMA_REPRESENTATION_SYSTEM + LLAMA_REPRESENTATION_MAIN
 
     # Free memory before loading Llama (helps when embedding model already used GPU)
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    device_map = "cpu" if (device or "").lower() == "cpu" else "auto"
+    use_cpu = (device or "").lower() == "cpu"
+    device_map = "cpu" if use_cpu else "auto"
     # First load: download + 4-bit quantization can take several minutes; later runs use cache.
-    print(f"Loading quantized Llama '{model_id}' on {device_map} (first run may take a few min)...")
+    print(f"Loading representation model '{model_id}' on {device_map} (first run may take a few min)...")
     bnb_config = transformers.BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -83,6 +164,8 @@ def _make_llama_representation_model(
     )
     model.eval()
 
+    # Force pipeline to CPU when device is cpu so Llama never touches GPU (avoids OOM with embedding model on GPU)
+    pipeline_device = -1 if use_cpu else 0  # -1 = CPU in HF pipeline
     # Greedy decoding (do_sample=False) avoids CUDA assert from bad logits in quantized models
     generator = transformers.pipeline(
         model=model,
@@ -91,12 +174,14 @@ def _make_llama_representation_model(
         max_new_tokens=50,
         repetition_penalty=1.1,
         do_sample=False,
+        device=pipeline_device,
     )
-    return TextGeneration(
+    return BatchedTextGeneration(
         generator,
         prompt=prompt,
         nr_docs=nr_docs,
         pipeline_kwargs={"max_new_tokens": 50, "do_sample": False},
+        batch_size=8,
     )
 
 

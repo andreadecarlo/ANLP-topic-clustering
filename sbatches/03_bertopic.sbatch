@@ -20,5 +20,5 @@ echo "=== ANLP: BERTopic fit (human-readable topics) ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 # Reduce CUDA fragmentation when reserved-but-unallocated memory is large
 export PYTORCH_ALLOC_CONF=expandable_segments:True
-uv run anlp bertopic --year-min 1960 --year-max 1970 --max-docs 30_000 --save models/bertopic_finetuned_30k  --visualize
+uv run anlp bertopic --year-min 1960 --year-max 1970 --max-docs 20_000 --save models/bertopic_finetuned_20k  --visualize
 echo "Done."
