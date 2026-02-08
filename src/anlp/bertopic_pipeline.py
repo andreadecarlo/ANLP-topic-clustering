@@ -2,7 +2,6 @@
 
 import gc
 from pathlib import Path
-from typing import Any, List, Mapping, Tuple
 
 import pandas as pd
 import torch
@@ -10,10 +9,7 @@ from datasets import Dataset
 import transformers
 from bertopic import BERTopic
 from bertopic.representation import TextGeneration
-from bertopic.representation._utils import truncate_document
-from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import CountVectorizer
-from tqdm import tqdm
 
 from anlp.config import (
     BERTOPIC_EMBEDDING_MODEL,
@@ -58,66 +54,6 @@ The topic is described by the following keywords: '[KEYWORDS]'.
 Based on the information above, create a short label for this topic. Return only the label.
 <|assistant|>
 """
-
-
-class BatchedTextGeneration(TextGeneration):
-    """TextGeneration that batches prompts so the pipeline runs on a dataset, avoiding
-    the 'using the pipelines sequentially on GPU' warning and improving GPU efficiency.
-    """
-
-    def __init__(self, *args: Any, batch_size: int = 8, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.batch_size = batch_size
-
-    def extract_topics(
-        self,
-        topic_model: Any,
-        documents: pd.DataFrame,
-        c_tf_idf: csr_matrix,
-        topics: Mapping[str, List[Tuple[str, float]]],
-    ) -> Mapping[str, List[Tuple[str, float]]]:
-        # Build (topic_id, prompt) in stable order
-        from bertopic.representation._textgeneration import DEFAULT_PROMPT
-
-        if self.prompt != DEFAULT_PROMPT and "[DOCUMENTS]" in self.prompt:
-            repr_docs_mappings, _, _, _ = topic_model._extract_representative_docs(
-                c_tf_idf, documents, topics, 500, self.nr_docs, self.diversity
-            )
-        else:
-            repr_docs_mappings = {topic: None for topic in topics.keys()}
-
-        topic_ids: List[int] = []
-        prompts: List[str] = []
-        for topic, docs in repr_docs_mappings.items():
-            truncated_docs = (
-                [truncate_document(topic_model, self.doc_length, self.tokenizer, doc) for doc in docs]
-                if docs is not None
-                else docs
-            )
-            prompt = self._create_prompt(truncated_docs, topic, topics)
-            self.prompts_.append(prompt)
-            topic_ids.append(topic)
-            prompts.append(prompt)
-
-        # Run pipeline in batches (list input avoids "using pipelines sequentially" warning)
-        updated_topics: dict[int, List[Tuple[str, float]]] = {}
-        for start in tqdm(
-            range(0, len(prompts), self.batch_size),
-            disable=not topic_model.verbose,
-            desc="Representation batches",
-        ):
-            batch_prompts = prompts[start : start + self.batch_size]
-            batch_ids = topic_ids[start : start + self.batch_size]
-            batch_results = self.model(batch_prompts, **self.pipeline_kwargs)
-            for topic_id, prompt, result_list in zip(batch_ids, batch_prompts, batch_results):
-                topic_description = [
-                    (d["generated_text"].replace(prompt, "").strip(), 1) for d in result_list
-                ]
-                if len(topic_description) < 10:
-                    topic_description += [("", 0) for _ in range(10 - len(topic_description))]
-                updated_topics[topic_id] = topic_description
-
-        return updated_topics
 
 
 def _make_llama_representation_model(
@@ -176,12 +112,11 @@ def _make_llama_representation_model(
         do_sample=False,
         device=pipeline_device,
     )
-    return BatchedTextGeneration(
+    return TextGeneration(
         generator,
         prompt=prompt,
         nr_docs=nr_docs,
         pipeline_kwargs={"max_new_tokens": 50, "do_sample": False},
-        batch_size=8,
     )
 
 
