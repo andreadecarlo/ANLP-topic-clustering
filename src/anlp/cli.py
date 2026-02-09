@@ -51,6 +51,18 @@ def main() -> None:
     p_bert.add_argument("--visualize", action="store_true", help="Generate visualizations after fitting")
     p_bert.set_defaults(func=cmd_bertopic)
 
+    # BERTopic online (incremental) fit
+    p_bert_online = subparsers.add_parser(
+        "bertopic-online",
+        help="Fit BERTopic incrementally (partial_fit over chunks); good for large corpora",
+    )
+    p_bert_online.add_argument("--year-min", type=int, default=YEAR_MIN)
+    p_bert_online.add_argument("--year-max", type=int, default=YEAR_MAX)
+    p_bert_online.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
+    p_bert_online.add_argument("--save", type=Path, default=None, help="Model save path (default: models/bertopic_lyrics_online)")
+    p_bert_online.add_argument("--no-refine", action="store_true", help="Skip update_topics and Llama labels after partial_fit")
+    p_bert_online.set_defaults(func=cmd_bertopic_online)
+
     # BERTopic visualizations (from saved model + docs + reduced embeddings)
     p_viz = subparsers.add_parser("visualize", help="Generate BERTopic visualizations from saved model")
     p_viz.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
@@ -151,6 +163,27 @@ def cmd_bertopic(args: argparse.Namespace) -> None:
             print(f"Visualizations saved to {out_dir}")
         else:
             print("Reduced embeddings not found; skipping visualizations.", file=sys.stderr)
+
+
+def cmd_bertopic_online(args: argparse.Namespace) -> None:
+    from anlp.bertopic_pipeline import fit_bertopic_on_lyrics_online, get_topic_labels
+
+    save_path = args.save or (MODELS_DIR / "bertopic_lyrics_online")
+    save_path = Path(save_path)
+
+    model, docs_df, topics, probs = fit_bertopic_on_lyrics_online(
+        year_min=args.year_min,
+        year_max=args.year_max,
+        max_docs=args.max_docs,
+        save_path=save_path,
+        refine_representations=not args.no_refine,
+    )
+    labels = get_topic_labels(model)
+    n_topics = len(set(topics)) - (1 if -1 in topics else 0)
+    print(f"Fitted BERTopic (online): {n_topics} topics, saved to {save_path}")
+    print("Topic labels:")
+    for tid in sorted(labels.keys()):
+        print(f"  {tid}: {labels[tid]}")
 
 
 def cmd_similar(args: argparse.Namespace) -> None:

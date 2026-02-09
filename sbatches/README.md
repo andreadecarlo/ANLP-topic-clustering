@@ -30,6 +30,12 @@ Runs: data subset → OCTIS comparison → BERTopic fit in a single job (~14h li
    # or: sbatch --dependency=afterok:<JOBID> sbatches/03_bertopic.sbatch
    ```
 
+4. **BERTopic online (full dataset)** — incremental fit over chunks; use when the corpus is too large for a single `fit()`:
+   ```bash
+   sbatch sbatches/05_bertopic_online.sbatch
+   ```
+   Edit `--year-min`, `--year-max`, `--max-docs` in the script to subset; default saves to `models/bertopic_lyrics_online_full`.
+
 ## Customisation
 
 - **Partition / resources**: Edit the `#SBATCH` lines in each file (e.g. `--partition`, `--mem`, `--time`, `--cpus-per-task`).
