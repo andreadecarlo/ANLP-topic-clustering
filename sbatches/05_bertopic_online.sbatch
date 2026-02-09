@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=anlp-bertopic-online
-#SBATCH --partition=edu-long
+#SBATCH --partition=edu-short
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=24G
-#SBATCH --time=24:00:00
+#SBATCH --mem=20G
+##SBATCH --time=24:00:00
 #SBATCH --output=sbatches/logs/05_bertopic_online_%j.out
 #SBATCH --error=sbatches/logs/05_bertopic_online_%j.err
 
@@ -26,7 +26,7 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 uv run anlp bertopic-online \
   --year-min 1960 \
   --year-max 2020 \
-  --max-docs 500000 \
+  --max-docs 5000 \
   --save models/bertopic_lyrics_online_full
 
 echo "Done."

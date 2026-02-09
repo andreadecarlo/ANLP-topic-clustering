@@ -3,6 +3,7 @@
 import gc
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from datasets import Dataset
@@ -227,6 +228,24 @@ def build_bertopic_model(
     return topic_model
 
 
+class _MiniBatchKMeansFloat64:
+    """Wraps MiniBatchKMeans so X is cast to float64 before partial_fit (sklearn expects double; embeddings are often float32)."""
+
+    def __init__(self, n_clusters: int = 50, random_state: int = 42):
+        self._model = MiniBatchKMeans(
+            n_clusters=n_clusters, random_state=random_state
+        )
+
+    def partial_fit(self, X, y=None):
+        X = np.asarray(X, dtype=np.float64)
+        self._model.partial_fit(X, y)
+        return self
+
+    @property
+    def labels_(self):
+        return self._model.labels_
+
+
 def build_bertopic_model_online(
     embedding_model: str = BERTOPIC_EMBEDDING_MODEL,
     n_components: int = BERTOPIC_ONLINE_N_COMPONENTS,
@@ -247,7 +266,10 @@ def build_bertopic_model_online(
     as hdbscan_model instead of MiniBatchKMeans; see the BERTopic online docs #river.
     """
     umap_model = IncrementalPCA(n_components=n_components)
-    cluster_model = MiniBatchKMeans(n_clusters=n_clusters, random_state=random_state)
+    # Wrap so input is cast to float64; embedding pipeline often yields float32 and sklearn expects double
+    cluster_model = _MiniBatchKMeansFloat64(
+        n_clusters=n_clusters, random_state=random_state
+    )
     vectorizer_model = OnlineCountVectorizer(
         ngram_range=n_gram_range,
         stop_words="english",

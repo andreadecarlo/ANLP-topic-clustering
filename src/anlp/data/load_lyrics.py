@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
+import pandas as pd
 from datasets import Dataset
 
 from anlp.config import (
@@ -64,8 +66,6 @@ def load_lyrics_subset(
     Reads in chunks and collects rows into a Hugging Face Dataset (no full CSV in memory).
     Returns Dataset with year, lyrics, and other subset columns (memory-mapped Arrow).
     """
-    import pandas as pd
-
     path = _resolve_csv_path(csv_path)
     first = pd.read_csv(path, nrows=0)
     cols = list(first.columns)
@@ -103,6 +103,19 @@ def load_lyrics_subset(
         return Dataset.from_dict({"year": [], "lyrics": []})
 
     rows = rows[:max_docs]
+    # Ensure PyArrow-friendly types: no NaN/float in string columns
+    str_cols = {"lyrics", "title", "tag", "artist", "id"}
+    for row in rows:
+        for k, v in row.items():
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                row[k] = "" if k in str_cols else (0 if k == "year" else "")
+            elif k in str_cols and not isinstance(v, str):
+                row[k] = str(v)
+            elif k == "year" and not isinstance(v, int):
+                try:
+                    row[k] = int(v) if v == v else 0  # v==v is False for NaN
+                except (ValueError, TypeError):
+                    row[k] = 0
     return Dataset.from_list(rows)
 
 
@@ -122,6 +135,18 @@ def get_lyrics_corpus(
     filtered = dataset.filter(has_min_chars, batched=False)
     corpus = [str(s).strip() for s in filtered[text_col]]
     return corpus, filtered
+
+
+def iter_corpus_chunks(
+    corpus: list[str],
+    chunk_size: int,
+):
+    """
+    Yield chunks of the corpus for online BERTopic (partial_fit).
+    Each yield is a list of document strings of length at most chunk_size.
+    """
+    for i in range(0, len(corpus), chunk_size):
+        yield corpus[i : i + chunk_size]
 
 
 def tokenize_for_octis(corpus: list[str]) -> list[list[str]]:
