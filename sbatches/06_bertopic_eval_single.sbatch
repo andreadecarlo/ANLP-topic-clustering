@@ -24,7 +24,7 @@ echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 # By default, this evaluates the main bertopic_lyrics model and writes/updates
 # models/bertopic_metrics.csv.
 uv run python scripts/compare_bertopic_models.py \
-  --model models/bertopic_lyrics \
+  --model models/bertopic_lyrics_n400 \
   --csv models/bertopic_metrics.csv \
   --append
 

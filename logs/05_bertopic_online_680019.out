@@ -1,0 +1,25 @@
+Working directory: /home/andrea.decarlo/ANLP
+=== ANLP: BERTopic online (full dataset) ===
+Node: edu01  Job: 680019
+Loading representation model 'meta-llama/Llama-2-7b-chat-hf' on auto (first run may take a few min)...
+  partial_fit chunk 1 (50000 docs)
+  partial_fit chunk 10 (50000 docs)
+Llama representation: topic labels set.
+Fitted BERTopic (online): 15 topics, saved to models/bertopic_lyrics_online_full
+Topic labels:
+  0: R&B
+  1: "Teenage Boy's Musings on Life, Love, and Sports"
+  2: Teenage angst
+  3: Rock
+  4: "Love and Longing"
+  5: Love
+  6: Rap
+  7: Love
+  8: Funky Intergalactic Groove
+  9: Underground Rap
+  10: Love
+  11: Rap Music
+  12: "Drug Use and Addiction"
+  13: Life and Time
+  14: Love and Hip Hop
+Done.

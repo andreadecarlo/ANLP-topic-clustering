@@ -21,7 +21,7 @@ mkdir -p sbatches/logs models
 echo "=== ANLP: Push BERTopic model + artifacts to Hugging Face Hub ==="
 echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 
-HF_REPO_ID="${HF_REPO_ID:-Dr3dre/bertopic-lyrics-auto}"
+HF_REPO_ID="${HF_REPO_ID:-Dr3dre/bertopic-lyrics-n200}"
 
 echo "Pushing to Hugging Face repo: $HF_REPO_ID"
 
@@ -34,7 +34,7 @@ echo "Pushing to Hugging Face repo: $HF_REPO_ID"
 
 uv run python scripts/push_bertopic_to_hf.py \
   --repo-id "$HF_REPO_ID" \
-  --model-dir models/bertopic_lyrics_auto
+  --model-dir models/bertopic_lyrics_n200
 
 echo "Done."
 

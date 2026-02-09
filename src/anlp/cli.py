@@ -81,14 +81,28 @@ def main() -> None:
     p_bert_online.set_defaults(func=cmd_bertopic_online)
 
     # BERTopic visualizations (from saved model + docs + reduced embeddings)
-    p_viz = subparsers.add_parser("visualize", help="Generate BERTopic visualizations from saved model")
-    p_viz.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
+    p_viz = subparsers.add_parser(
+        "visualize",
+        help="Generate BERTopic visualizations from saved model (local path or Hugging Face repo ID)",
+    )
+    p_viz.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Path to BERTopic model dir or Hugging Face repo ID (e.g. 'Dr3dre/bertopic-lyrics-auto')",
+    )
     p_viz.add_argument("--out-dir", type=Path, default=None, help="Output directory for HTML/PNG (default: next to model)")
     p_viz.set_defaults(func=cmd_visualize)
 
     # Similar songs
-    p_similar = subparsers.add_parser("similar", help="Get similar songs for a song (by doc index)")
-    p_similar.add_argument("doc_id", type=int, help="Document index (row in processed corpus)")
+    p_similar = subparsers.add_parser(
+        "similar",
+        help="Get similar songs for a song (by title or doc index)",
+    )
+    p_similar.add_argument(
+        "query",
+        help="Song title (substring match, case-insensitive) or document index (row in processed corpus)",
+    )
     p_similar.add_argument("--model", type=Path, required=True, help="Path to BERTopic model dir")
     p_similar.add_argument("--top-k", type=int, default=TOP_K_SIMILAR_SONGS)
     p_similar.set_defaults(func=cmd_similar)
@@ -227,11 +241,38 @@ def cmd_similar(args: argparse.Namespace) -> None:
         print("Docs parquet not found at", docs_path, file=sys.stderr)
         sys.exit(1)
     docs_df = pd.read_parquet(docs_path)
+
+    # Allow either numeric doc index or title substring as query
+    query = str(args.query)
+    doc_id: int | None = None
+    if query.isdigit():
+        doc_id = int(query)
+    else:
+        if "title" not in docs_df.columns:
+            print(
+                "Docs parquet has no 'title' column; similar-by-title is unavailable. "
+                "Use a numeric document index instead.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # Case-insensitive substring match on title
+        mask = docs_df["title"].astype(str).str.contains(query, case=False, na=False)
+        matches = docs_df[mask]
+        if matches.empty:
+            print(f"No songs found with title containing {query!r}.", file=sys.stderr)
+            sys.exit(1)
+        # Use the first match; print a hint if there are multiple
+        if len(matches) > 1:
+            print(
+                f"Multiple songs match {query!r}; using the first match: "
+                f"{matches.iloc[0].get('title', '')!r} by {matches.iloc[0].get('artist', '')!r}.",
+                file=sys.stderr,
+            )
+        doc_id = int(matches.index[0])
+
     topics = model.topics_
     probs = getattr(model, "probabilities_", None)
-    out = similar_songs_for_song(
-        args.doc_id, docs_df, topics, probs, top_k=args.top_k
-    )
+    out = similar_songs_for_song(doc_id, docs_df, topics, probs, top_k=args.top_k)
     print(out.to_string(index=False))
 
 
@@ -239,15 +280,50 @@ def cmd_visualize(args: argparse.Namespace) -> None:
     from anlp.bertopic_pipeline import load_bertopic_model
     from anlp.bertopic_viz import load_reduced_embeddings, run_visualizations
 
-    model_path = Path(args.model)
-    model = load_bertopic_model(model_path)
-    docs_path = model_path.parent / (model_path.name + "_docs.parquet")
-    reduced_path = model_path.parent / (model_path.name + "_reduced_embeddings.npy")
-    if not docs_path.exists():
-        print("Docs parquet not found at", docs_path, file=sys.stderr)
+    model_arg = str(args.model)
+    
+    # Check if model_arg looks like a Hugging Face repo ID (contains / and doesn't exist as path)
+    # If so, download it first
+    model_path = Path(model_arg)
+    if "/" in model_arg and not model_path.exists() and not model_path.is_absolute():
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError:
+            print(
+                "huggingface_hub is required when using Hugging Face repo IDs. "
+                "Install it with: pip install huggingface_hub (or uv add huggingface_hub).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        
+        repo_id = model_arg
+        print(f"Downloading model from Hugging Face Hub: {repo_id}")
+        cache_dir = snapshot_download(repo_id=repo_id)
+        model_path = Path(cache_dir)
+        print(f"Model downloaded to: {model_path}")
+    
+    if not model_path.exists():
+        print(f"Model path does not exist: {model_path}", file=sys.stderr)
         sys.exit(1)
-    if not reduced_path.exists():
-        print("Reduced embeddings not found at", reduced_path, file=sys.stderr)
+    
+    model = load_bertopic_model(model_path)
+    
+    # Try new layout first (docs.parquet and reduced_embeddings.npy inside model dir)
+    docs_path_new = model_path / "docs.parquet"
+    reduced_path_new = model_path / "reduced_embeddings.npy"
+    # Fall back to legacy layout (next to model dir)
+    docs_path_legacy = model_path.parent / (model_path.name + "_docs.parquet")
+    reduced_path_legacy = model_path.parent / (model_path.name + "_reduced_embeddings.npy")
+    
+    if docs_path_new.exists() and reduced_path_new.exists():
+        docs_path = docs_path_new
+        reduced_path = reduced_path_new
+    elif docs_path_legacy.exists() and reduced_path_legacy.exists():
+        docs_path = docs_path_legacy
+        reduced_path = reduced_path_legacy
+    else:
+        print(f"Docs parquet not found at {docs_path_new} or {docs_path_legacy}", file=sys.stderr)
+        print(f"Reduced embeddings not found at {reduced_path_new} or {reduced_path_legacy}", file=sys.stderr)
         sys.exit(1)
 
     import pandas as pd

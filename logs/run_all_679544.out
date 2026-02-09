@@ -1,0 +1,40 @@
+Working directory: /home/andrea.decarlo/ANLP
+=== ANLP: full pipeline (data + OCTIS + BERTopic) ===
+Node: edu01  Job: 679544
+--- 1. Data subset ---
+Loaded 10000 documents (years 1960-1970)
+                         title  ...    id
+0  Subterranean Homesick Blues  ...   224
+1               Helter Skelter  ...  1131
+2                      The End  ...  1167
+3           Dazed and Confused  ...  1255
+4            A Day in the Life  ...  1436
+
+[5 rows x 6 columns]
+--- 2. BERTopic (fit and save) ---
+2026-02-07 17:46:19,938 - BERTopic - Embedding - Transforming documents to embeddings.
+2026-02-07 17:46:33,995 - BERTopic - Embedding - Completed ✓
+2026-02-07 17:46:33,995 - BERTopic - Dimensionality - Fitting the dimensionality reduction algorithm
+2026-02-07 17:46:53,446 - BERTopic - Dimensionality - Completed ✓
+2026-02-07 17:46:53,446 - BERTopic - Cluster - Start clustering the reduced embeddings
+2026-02-07 17:46:53,795 - BERTopic - Cluster - Completed ✓
+2026-02-07 17:46:53,795 - BERTopic - Representation - Extracting topics using c-TF-IDF for topic reduction.
+2026-02-07 17:46:58,073 - BERTopic - Representation - Completed ✓
+2026-02-07 17:46:58,082 - BERTopic - Topic reduction - Reducing number of topics
+2026-02-07 17:46:58,088 - BERTopic - Representation - Fine-tuning topics using representation models.
+2026-02-07 17:47:02,724 - BERTopic - Representation - Completed ✓
+2026-02-07 17:47:02,734 - BERTopic - Topic reduction - Reduced number of topics from 9 to 3
+2026-02-07 17:47:20,157 - BERTopic - Dimensionality - Reducing dimensionality of input embeddings.
+2026-02-07 17:47:20,179 - BERTopic - Dimensionality - Completed ✓
+2026-02-07 17:47:20,179 - BERTopic - Clustering - Approximating new points with `hdbscan_model`
+2026-02-07 17:47:20,437 - BERTopic - Cluster - Completed ✓
+2026-02-07 17:47:20,446 - BERTopic - WARNING: When you use `pickle` to save/load a BERTopic model,please make sure that the environments in which you saveand load the model are **exactly** the same. The version of BERTopic,its dependencies, and python need to remain the same.
+Fitted BERTopic: 2 topics
+Topic labels (sample): [(-1, 'Outliers'), (0, '0 the you and to'), (1, '1 de la et que')]
+--- 3. OCTIS comparison (LDA, NMF, CTM, and saved BERTopic with same metrics) ---
+algorithm  coherence_npmi  topic_diversity
+      LDA       -0.002475            0.305
+      NMF        0.031492            0.385
+      CTM       -0.035342            0.825
+ BERTopic        0.182855            1.000
+=== Pipeline done ===

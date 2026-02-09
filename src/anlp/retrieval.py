@@ -8,6 +8,27 @@ import pandas as pd
 from anlp.config import TOP_K_SIMILAR_SONGS, TOP_K_REPRESENTATIVE_SONGS
 
 
+def find_doc_id_by_title(
+    title_query: str,
+    docs_df: pd.DataFrame,
+    title_col: str = "title",
+    case_sensitive: bool = False,
+) -> int | None:
+    """
+    Find document index by title substring match.
+    Returns the first matching doc_id, or None if no match.
+    """
+    if title_col not in docs_df.columns:
+        return None
+    mask = docs_df[title_col].astype(str).str.contains(
+        title_query, case=case_sensitive, na=False
+    )
+    matches = docs_df[mask]
+    if matches.empty:
+        return None
+    return int(matches.index[0])
+
+
 def similar_songs_for_song(
     doc_id: int,
     docs_df: pd.DataFrame,
