@@ -228,6 +228,19 @@ def build_bertopic_model(
     return topic_model
 
 
+class _OnlineCountVectorizerSaveCompat(OnlineCountVectorizer):
+    """OnlineCountVectorizer whose get_params() includes tokenizer, preprocessor, dtype
+    so BERTopic save_ctfidf_config (which dels those keys) does not raise KeyError.
+    """
+
+    def get_params(self, deep: bool = True) -> dict:
+        params = super().get_params(deep=deep)
+        for key in ("tokenizer", "preprocessor", "dtype"):
+            params.setdefault(key, None)
+        params.setdefault("analyzer", "word")  # expected by save_ctfidf_config
+        return params
+
+
 class _MiniBatchKMeansFloat64:
     """Wraps MiniBatchKMeans so X is cast to float64 before partial_fit (sklearn expects double; embeddings are often float32)."""
 
@@ -270,7 +283,7 @@ def build_bertopic_model_online(
     cluster_model = _MiniBatchKMeansFloat64(
         n_clusters=n_clusters, random_state=random_state
     )
-    vectorizer_model = OnlineCountVectorizer(
+    vectorizer_model = _OnlineCountVectorizerSaveCompat(
         ngram_range=n_gram_range,
         stop_words="english",
         decay=decay,
@@ -334,10 +347,20 @@ def fit_bertopic_on_lyrics_online(
     topic_model.topics_ = topics
 
     if refine_representations:
-        topic_model.update_topics(
-            corpus,
-            n_gram_range=BERTOPIC_REPRESENTATION_NGRAM_RANGE,
-            top_n_words=BERTOPIC_REPRESENTATION_N_WORDS,
+        # Use _extract_topics (not update_topics): update_topics sets
+        # representation_model=None when not passed, which wipes Llama.
+        # _extract_topics keeps the existing representation_model and runs
+        # both Main (c-TF-IDF) and aspects (Llama2).
+        topic_model.top_n_words = BERTOPIC_REPRESENTATION_N_WORDS
+        topic_model.n_gram_range = BERTOPIC_REPRESENTATION_NGRAM_RANGE
+        documents_df = pd.DataFrame(
+            {"Document": corpus, "Topic": topics, "ID": range(len(corpus))}
+        )
+        topic_model._update_topic_size(documents_df)
+        topic_model._extract_topics(
+            documents_df,
+            fine_tune_representation=True,
+            verbose=True,
         )
         representation_model = getattr(
             topic_model, "representation_model", None
@@ -368,8 +391,12 @@ def fit_bertopic_on_lyrics_online(
                                 text = "Outliers" if tid == -1 else str(tid)
                         llama2_labels.append(text)
                     topic_model.set_topic_labels(llama2_labels)
-            except (KeyError, TypeError, IndexError):
-                pass
+                    print("Llama representation: topic labels set.")
+            except (KeyError, TypeError, IndexError) as e:
+                print(
+                    f"Llama representation: could not set labels ({e}); using c-TF-IDF.",
+                    flush=True,
+                )
 
     probs = getattr(topic_model, "probabilities_", None)
     if probs is None or len(probs) != len(topics):

@@ -22,11 +22,13 @@ echo "Node: $(hostname)  Job: $SLURM_JOB_ID"
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
 # Load (effectively) all dataset: large max-docs, full year range from config/defaults
-# Tune YEAR_MIN/YEAR_MAX and --max-docs if you want a subset (e.g. --max-docs 500000)
+# Tune YEAR_MIN/YEAR_MAX and --max-docs for a subset (e.g. --max-docs 500000)
+# --refine-representations: apply Llama labels after partial_fit (uses BERTOPIC_REPRESENTATION_LLAMA_MODEL from config)
 uv run anlp bertopic-online \
   --year-min 1960 \
   --year-max 2020 \
-  --max-docs 5000 \
-  --save models/bertopic_lyrics_online_full
+  --max-docs 50000 \
+  --save models/bertopic_lyrics_online_full \
+  --refine-representations
 
 echo "Done."

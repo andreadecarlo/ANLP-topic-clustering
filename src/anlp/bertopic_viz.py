@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 from bertopic import BERTopic
 
 from anlp.bertopic_pipeline import get_topic_labels
@@ -42,14 +43,31 @@ def compute_reduced_embeddings(
     min_dist: float = 0.0,
     metric: str = "cosine",
     random_state: int = 42,
+    embed_batch_size: int | None = None,
 ) -> np.ndarray:
     """
     Embed documents via the topic model's backend, reduce to 2D with UMAP.
     Returns the 2D array for visualize_documents (no file saved).
+    Embed documents via the topic model's backend, reduce to 2D with UMAP, and save as .npy.
+    Returns the 2D array for immediate use.
+    Uses topic_model._extract_embeddings so any backend (SentenceTransformer, etc.) works.
+    If embed_batch_size is set, embed in chunks to lower peak GPU memory (e.g. 500 or 1000).
     """
     from umap import UMAP
 
-    emb = topic_model._extract_embeddings(documents, method="document", verbose=True)
+    if embed_batch_size is not None and embed_batch_size > 0 and len(documents) > embed_batch_size:
+        chunks = [
+            documents[i : i + embed_batch_size]
+            for i in range(0, len(documents), embed_batch_size)
+        ]
+        embs = []
+        for i, chunk in enumerate(chunks):
+            embs.append(topic_model._extract_embeddings(chunk, method="document", verbose=True))
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        emb = np.vstack(embs)
+    else:
+        emb = topic_model._extract_embeddings(documents, method="document", verbose=True)
     reducer = UMAP(
         n_neighbors=n_neighbors,
         n_components=2,
@@ -68,6 +86,7 @@ def compute_and_save_reduced_embeddings(
     min_dist: float = 0.0,
     metric: str = "cosine",
     random_state: int = 42,
+    embed_batch_size: int | None = None,
 ) -> np.ndarray:
     """
     Embed documents via the topic model's backend, reduce to 2D with UMAP, and save as .npy.
@@ -75,8 +94,13 @@ def compute_and_save_reduced_embeddings(
     Uses topic_model._extract_embeddings so any backend (SentenceTransformerBackend, etc.) works.
     """
     reduced = compute_reduced_embeddings(
-        topic_model, documents,
-        n_neighbors=n_neighbors, min_dist=min_dist, metric=metric, random_state=random_state,
+        topic_model,
+        documents,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        metric=metric,
+        random_state=random_state,
+        embed_batch_size=embed_batch_size,
     )
     path = Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)

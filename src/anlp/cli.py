@@ -60,7 +60,12 @@ def main() -> None:
     p_bert_online.add_argument("--year-max", type=int, default=YEAR_MAX)
     p_bert_online.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
     p_bert_online.add_argument("--save", type=Path, default=None, help="Model save path (default: models/bertopic_lyrics_online)")
-    p_bert_online.add_argument("--no-refine", action="store_true", help="Skip update_topics and Llama labels after partial_fit")
+    p_bert_online.add_argument(
+        "--refine-representations",
+        action="store_true",
+        help="Apply update_topics and Llama labels after partial_fit (default). Use this to explicitly request Llama representation.",
+    )
+    p_bert_online.add_argument("--no-refine", action="store_true", help="Skip update_topics and Llama labels after partial_fit (c-TF-IDF only)")
     p_bert_online.set_defaults(func=cmd_bertopic_online)
 
     # BERTopic visualizations (from saved model + docs + reduced embeddings)
@@ -171,12 +176,14 @@ def cmd_bertopic_online(args: argparse.Namespace) -> None:
     save_path = args.save or (MODELS_DIR / "bertopic_lyrics_online")
     save_path = Path(save_path)
 
+    # Llama representation: default True unless --no-refine
+    refine = getattr(args, "refine_representations", False) or not args.no_refine
     model, docs_df, topics, probs = fit_bertopic_on_lyrics_online(
         year_min=args.year_min,
         year_max=args.year_max,
         max_docs=args.max_docs,
         save_path=save_path,
-        refine_representations=not args.no_refine,
+        refine_representations=refine,
     )
     labels = get_topic_labels(model)
     n_topics = len(set(topics)) - (1 if -1 in topics else 0)

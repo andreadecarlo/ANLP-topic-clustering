@@ -50,10 +50,10 @@ BERTOPIC_REPRESENTATION_DOC_LENGTH = 100
 
 # BERTopic online (incremental) variant: partial_fit over chunks
 # https://maartengr.github.io/BERTopic/getting_started/online/online.html
-BERTOPIC_ONLINE_CHUNK_SIZE = 500  # documents per partial_fit chunk
+BERTOPIC_ONLINE_CHUNK_SIZE = 1000  # documents per partial_fit chunk
 BERTOPIC_ONLINE_N_COMPONENTS = 5  # IncrementalPCA dimensions
 BERTOPIC_ONLINE_N_CLUSTERS = 15   # MiniBatchKMeans clusters (fixed number of topics)
-BERTOPIC_ONLINE_DECAY = 0.5       # OnlineCountVectorizer: decay previous counts (0–1)
+BERTOPIC_ONLINE_DECAY = 0.1       # OnlineCountVectorizer: decay previous counts (0–1)
 
 # BERTopic viz: batch size when re-embedding for reduced embeddings (online path)
 BERTOPIC_VIZ_EMBED_BATCH_SIZE = 512
