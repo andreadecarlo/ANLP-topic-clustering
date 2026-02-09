@@ -29,7 +29,7 @@ OCTIS_RANDOM_STATE = 42
 # BERTopic
 # None = keep all clusters (fine-grained); "auto" = merge similar topics (can reduce to few); int = target count
 # we cannot get more than 80 topics finetuned with llama2-7b-chat-hf
-BERTOPIC_NUM_TOPICS = 15
+BERTOPIC_NUM_TOPICS = None
 # Smaller = more, smaller topics (more fine-grained); larger = fewer, broader topics
 BERTOPIC_MIN_TOPIC_SIZE = 15
 BERTOPIC_EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # fast; use paraphrase-multilingual for non-English
@@ -50,10 +50,12 @@ BERTOPIC_REPRESENTATION_DOC_LENGTH = 100
 
 # BERTopic online (incremental) variant: partial_fit over chunks
 # https://maartengr.github.io/BERTopic/getting_started/online/online.html
-BERTOPIC_ONLINE_CHUNK_SIZE = 1000  # documents per partial_fit chunk
+BERTOPIC_ONLINE_CHUNK_SIZE = 50_000  # documents per partial_fit chunk
 BERTOPIC_ONLINE_N_COMPONENTS = 5  # IncrementalPCA dimensions
 BERTOPIC_ONLINE_N_CLUSTERS = 15   # MiniBatchKMeans clusters (fixed number of topics)
 BERTOPIC_ONLINE_DECAY = 0.1       # OnlineCountVectorizer: decay previous counts (0–1)
+# Online vectorizer sees one row per topic (not per doc); use 1 so min_df <= nr of topics.
+BERTOPIC_ONLINE_VECTORIZER_MIN_DF = 1
 
 # BERTopic viz: batch size when re-embedding for reduced embeddings (online path)
 BERTOPIC_VIZ_EMBED_BATCH_SIZE = 512

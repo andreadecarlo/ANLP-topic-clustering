@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=anlp-bertopic-online
-#SBATCH --partition=edu-short
+#SBATCH --partition=edu-thesis
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -26,8 +26,8 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 # --refine-representations: apply Llama labels after partial_fit (uses BERTOPIC_REPRESENTATION_LLAMA_MODEL from config)
 uv run anlp bertopic-online \
   --year-min 1960 \
-  --year-max 2020 \
-  --max-docs 50000 \
+  --year-max 2000 \
+  --max-docs 1000000 \
   --save models/bertopic_lyrics_online_full \
   --refine-representations
 

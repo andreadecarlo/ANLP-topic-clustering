@@ -23,6 +23,7 @@ from anlp.config import (
     BERTOPIC_ONLINE_DECAY,
     BERTOPIC_ONLINE_N_CLUSTERS,
     BERTOPIC_ONLINE_N_COMPONENTS,
+    BERTOPIC_ONLINE_VECTORIZER_MIN_DF,
     BERTOPIC_REPRESENTATION_DOC_LENGTH,
     BERTOPIC_REPRESENTATION_LLAMA_DEVICE,
     BERTOPIC_REPRESENTATION_LLAMA_MODEL,
@@ -287,7 +288,7 @@ def build_bertopic_model_online(
         ngram_range=n_gram_range,
         stop_words="english",
         decay=decay,
-        min_df=BERTOPIC_VECTORIZER_MIN_DF,
+        min_df=BERTOPIC_ONLINE_VECTORIZER_MIN_DF,
         max_df=1.0,
     )
     representation_model = _make_llama_representation_model(
@@ -469,6 +470,7 @@ def fit_bertopic_on_lyrics(
     year_max: int = 2020,
     max_docs: int | None = MAX_DOCS_SUBSET,
     save_path: Path | None = None,
+    nr_topics: str | int = BERTOPIC_NUM_TOPICS,
 ) -> tuple[BERTopic, pd.DataFrame, list[int], list[float]]:
     """
     Load lyrics subset (Hugging Face Dataset), fit BERTopic, return model, metadata DataFrame, topics, and probs.
@@ -485,7 +487,7 @@ def fit_bertopic_on_lyrics(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    topic_model = build_bertopic_model(corpus)
+    topic_model = build_bertopic_model(corpus, nr_topics=nr_topics)
     topics, probs = topic_model.transform(corpus)
 
     dataset_clean = dataset_clean.add_column("topic", topics)

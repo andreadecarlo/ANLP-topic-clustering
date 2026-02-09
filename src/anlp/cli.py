@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from anlp.config import (
+    BERTOPIC_NUM_TOPICS,
     MAX_DOCS_SUBSET,
     MODELS_DIR,
     OCTIS_NUM_TOPICS,
@@ -48,6 +49,17 @@ def main() -> None:
     p_bert.add_argument("--year-max", type=int, default=YEAR_MAX)
     p_bert.add_argument("--max-docs", type=int, default=MAX_DOCS_SUBSET)
     p_bert.add_argument("--save", type=Path, default=None, help="Model save path")
+    p_bert.add_argument(
+        "--nr-topics",
+        type=str,
+        default=str(BERTOPIC_NUM_TOPICS)
+        if BERTOPIC_NUM_TOPICS is not None
+        else "None",
+        help=(
+            "BERTopic nr_topics parameter (int, 'auto', or 'None' to keep all clusters). "
+            f"Default: {BERTOPIC_NUM_TOPICS!r}."
+        ),
+    )
     p_bert.add_argument("--visualize", action="store_true", help="Generate visualizations after fitting")
     p_bert.set_defaults(func=cmd_bertopic)
 
@@ -133,11 +145,21 @@ def cmd_bertopic(args: argparse.Namespace) -> None:
     save_path = args.save or (MODELS_DIR / "bertopic_lyrics")
     save_path = Path(save_path)
 
+    # Parse nr_topics: allow int, 'auto', or 'None'
+    nr_topics_arg: str = getattr(args, "nr_topics", "None")
+    if nr_topics_arg.lower() == "none":
+        nr_topics_val: int | str | None = None
+    elif nr_topics_arg.lower() == "auto":
+        nr_topics_val = "auto"
+    else:
+        nr_topics_val = int(nr_topics_arg)
+
     model, docs_df, topics, probs = fit_bertopic_on_lyrics(
         year_min=args.year_min,
         year_max=args.year_max,
         max_docs=args.max_docs,
         save_path=save_path,
+        nr_topics=nr_topics_val,
     )
     labels = get_topic_labels(model)
     n_topics = len(set(topics)) - (1 if -1 in topics else 0)
